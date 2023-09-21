@@ -4,10 +4,10 @@ import configparser
 from typing import Optional
 
 import pandas as pd
-from openpyxl.cell import Cell
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 from utils import Logger
 
@@ -19,6 +19,8 @@ with open("./settings/settings.ini", "r") as file:
 INPUT_PATH = config.get("paths", "input")
 
 OUTPUT_PATH = config.get("paths", "output")
+
+SAVE_IMAGE_FILES = re.search(r"true", config.get("images", "save_files"), re.I)
 
 AVAILABILITY = config.get("minimum values", "offers_0_availability")
 
@@ -121,7 +123,7 @@ class ProductsFilter:
 
                 df_defined = df_roi_str[df_roi_str["ROI"].str.contains("[^undefined]", regex=True)]
 
-                df_defined["roi"] = df["ROI"].str.replace("%", "")
+                df_defined["roi"] = df["ROI"].astype("str").str.replace("%", "")
 
                 df_float_roi = df_defined.astype({"roi": "float"})
 
@@ -257,11 +259,9 @@ class ProductsFilter:
         self.logger.info("Filtered products: {}".format(len(df)))
         
         return df
-
-    def __save_filtered_df(self, df: pd.DataFrame, unfiltered: Workbook, name: str) -> None:
+    
+    def __save_filtered_df(self, df: pd.DataFrame, name: str) -> None:
         """Saves data filtered to an excel file"""
-        unfiltered_ws = unfiltered[unfiltered.sheetnames[0]]
-
         wb = Workbook()
         ws: Worksheet = wb.active
 
@@ -286,51 +286,30 @@ class ProductsFilter:
         
         self.logger.info("Retrieving images from excel...")
 
-        for product in df.to_dict("records"):
-            highest_match_value, product_images = 0, []
-            product_match: tuple[Cell] = None
+        rows = dataframe_to_rows(df, index=False, header=False)
 
-            product_asin = product["ASIN"]
+        for row in rows:
+            product_images = []
 
-            for row in unfiltered_ws.iter_rows():
-                is_match = False
-
-                for cell in row:
-                    if cell.internal_value == product_asin:
-                        is_match = True
-                
-                if not is_match:
-                    continue
-
-                matches = []
-
-                for value in list(product.values()):                    
-                    [matches.append("") for cell in row if cell.internal_value == value]
-                
-                if len(matches) > highest_match_value and len(matches) > 7:
-                    highest_match_value = len(matches)
-                    product_match = [cell.value for cell in row]
-
-            if product_match is not None:
-                for cell in product_match:
-                    if str(cell).startswith("=IM"):
-                        product_images.append(cell)
-                
-                ws_images.append(product_images)
-
-                ws.append(product_match)
+            for cell in row:
+                if str(cell).startswith("=IM"):
+                    product_images.append(cell)
             
-            for row in ws.iter_rows(max_col=ws.max_column):
-                for cell in row:
-                    if str(cell.internal_value).startswith("=HY"):
-                        cell.style = "Hyperlink"
+            ws_images.append(product_images)
 
-                        continue
-                    
-                    if str(cell.internal_value).endswith("%"):
-                        cell.fill = PatternFill(fill_type="solid",
-                                                end_color=self.green_roi_color,
-                                                start_color=self.green_roi_color)
+            ws.append(row)
+        
+        for row in ws.iter_rows(max_col=ws.max_column):
+            for cell in row:
+                if str(cell.internal_value).startswith("=HY"):
+                    cell.style = "Hyperlink"
+
+                    continue
+                
+                if str(cell.internal_value).endswith("%"):
+                    cell.fill = PatternFill(fill_type="solid",
+                                            end_color=self.green_roi_color,
+                                            start_color=self.green_roi_color)
         
         self.logger.info("Saving data to excel...")
 
@@ -338,18 +317,30 @@ class ProductsFilter:
 
         self.logger.info("Filtered data saved to: {}".format(name.replace(".xlsx", "_filtered.xlsx")))
 
-        self.logger.info("Saving images...")
+        if SAVE_IMAGE_FILES:
+            self.logger.info("Saving images...")
 
-        wb_images.save(f'{OUTPUT_PATH}{name.replace(".xlsx", "_images.xlsx")}')
+            wb_images.save(f'{OUTPUT_PATH}{name.replace(".xlsx", "_images.xlsx")}')
 
-        self.logger.info("Images saved to: {}".format(name.replace(".xlsx", "_images.xlsx")))
-
-        df.to_excel("test.xlsx")
+            self.logger.info("Images saved to: {}".format(name.replace(".xlsx", "_images.xlsx")))
 
     def run(self) -> None:
         """Entry point to the filter"""
         for file in self.files:
-            unfiltered_df = self.__read_file(file_path=file)
+            df = self.__read_file(file_path=file)
+
+            columns = df.columns.values
+
+            wb = load_workbook(file, rich_text=True)
+
+            ws = wb[wb.sheetnames[0]]
+
+            rows = []
+
+            for row in ws.iter_rows(min_row=2, max_col=ws.max_column, max_row=ws.max_row):
+                rows.append([cell.internal_value for cell in row])
+            
+            unfiltered_df = pd.DataFrame(rows, columns=columns)
 
             filtered_df = self.__filter_by_amazon_price(unfiltered_df)
 
@@ -357,10 +348,8 @@ class ProductsFilter:
 
             if blacklist_filtered_df is None:
                 continue
-
-            wb = load_workbook(file, rich_text=True)
-
-            self.__save_filtered_df(blacklist_filtered_df, wb, file.split("/")[-1])
+            
+            self.__save_filtered_df(blacklist_filtered_df, file.split("/")[-1])
 
 app = ProductsFilter()
 app.run()
