@@ -11,6 +11,8 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 from utils import Logger
 
+pd.options.mode.chained_assignment = None
+
 config = configparser.ConfigParser()
 
 with open("./settings/settings.ini", "r") as file:
@@ -88,6 +90,8 @@ class ProductsFilter:
             try:
                 self.logger.info("Filtering products by amazon price...")
 
+                df["Amazon Price"].replace(",", "", regex=True, inplace=True)
+
                 min_price = float(MINIMUM_AMAZON_PRICE.group())
 
                 df = df.dropna(subset=["Amazon Price"])
@@ -146,6 +150,8 @@ class ProductsFilter:
             try:
                 self.logger.info("Filtering by minimum rating...")
 
+                df["Rating"].replace(",", "", regex=True, inplace=True)
+
                 min_rating = float(MINIMUM_RATING.group())
 
                 df = df.dropna(subset=["Rating"])
@@ -175,6 +181,8 @@ class ProductsFilter:
             try:
                 self.logger.info("Filtering by minimum number of reviews...")
 
+                df["ReviewCount"].replace(",", "", regex=True, inplace=True)
+
                 min_reviews = int(MINIMUM_REVIEW_COUNT.group())
 
                 df = df.dropna(subset=["ReviewCount"])
@@ -203,6 +211,8 @@ class ProductsFilter:
         if MINIMUM_OFFER_COUNT and df is not None:
             try:
                 self.logger.info("Filtering by minimum number of offers...")
+
+                df["offerCount"].replace(",", "", regex=True, inplace=True)
 
                 min_offers = int(MINIMUM_OFFER_COUNT.group())
 
@@ -341,6 +351,8 @@ class ProductsFilter:
                 rows.append([cell.value for cell in row])
             
             unfiltered_df = pd.DataFrame(rows, columns=columns)
+
+            unfiltered_df["ROI"].replace(",", "", regex=True, inplace=True)
 
             try:
                 unfiltered_df.loc[:, "ROI"] = unfiltered_df["ROI"].apply(
