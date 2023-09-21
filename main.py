@@ -338,9 +338,15 @@ class ProductsFilter:
             rows = []
 
             for row in ws.iter_rows(min_row=2, max_col=ws.max_column, max_row=ws.max_row):
-                rows.append([cell.internal_value for cell in row])
+                rows.append([cell.value for cell in row])
             
             unfiltered_df = pd.DataFrame(rows, columns=columns)
+
+            try:
+                unfiltered_df.loc[:, "ROI"] = unfiltered_df["ROI"].apply(
+                    lambda x: '{:.2%}'.format(x)
+                )
+            except:pass
 
             filtered_df = self.__filter_by_amazon_price(unfiltered_df)
 
@@ -349,7 +355,8 @@ class ProductsFilter:
             if blacklist_filtered_df is None:
                 continue
             
-            self.__save_filtered_df(blacklist_filtered_df, file.split("/")[-1])
+            if len(blacklist_filtered_df):
+                self.__save_filtered_df(blacklist_filtered_df, file.split("/")[-1])
 
 app = ProductsFilter()
 app.run()
